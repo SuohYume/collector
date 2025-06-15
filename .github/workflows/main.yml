@@ -1,16 +1,19 @@
 name: Ultimate Proxy Automator
 
 on:
-  # 允许您在 Actions 标签页手动触发这个工作流
   workflow_dispatch:
-  
-  # 设定最优执行频率：每3小时一次。您也可以改成您自己的 "0 0,6,12,18 * * *"
   schedule:
-    - cron: '0 */3 * * *'
+    - cron: '0 */3 * * *' # 每3小时运行一次
 
 jobs:
   automate:
     runs-on: ubuntu-latest
+
+    # VVVV 在这里添加这两行 VVVV
+    permissions:
+      contents: write
+    # ^^^^ 在这里添加这两行 ^^^^
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,14 +31,12 @@ jobs:
       - name: Run Automator Script
         run: python proxy_automator.py
         env:
-          # 将仓库名称注入环境变量，供脚本使用
           GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Commit and Push Changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "🚀 Auto-update proxy data"
-          # 匹配所有需要提交的文件
           file_pattern: "*.yaml *.txt *.csv *.md"
           commit_user_name: "GitHub Actions Bot"
           commit_user_email: "actions@github.com"
