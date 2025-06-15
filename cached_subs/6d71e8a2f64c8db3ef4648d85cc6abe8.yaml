@@ -1,0 +1,62 @@
+proxies:
+- name: 美国+Amazon数据中心
+  network: tcp
+  password: telegram-id-directvpn
+  port: 22223
+  server: 18.198.113.57
+  tls: false
+  type: trojan
+- cipher: aes-256-gcm
+  name: 广东省湛江市+移动
+  password: 3ee90aa9-8831-4ea3-9425-c361090a938d
+  port: 20251
+  server: zf1.10101251.xyz
+  type: ss
+- cipher: chacha20-ietf-poly1305
+  name: 欧盟+V2CROSS.COM
+  password: 1RWwXhwfAB5gAEozU4G2Pg
+  port: 8080
+  server: 45.87.175.166
+  type: ss
+- cipher: chacha20-ietf-poly1305
+  name: 广东省+移动
+  password: a468ddb4-f06f-4a10-be2b-2b8951699b6c
+  port: 49709
+  server: jg647hf446ghvw.gym0boy.com
+  type: ss
+- alterId: 0
+  cipher: auto
+  name: 美国 CloudFlare节点
+  network: ws
+  port: 80
+  server: xxccvfrty.999836.xyz
+  tls: false
+  type: vmess
+  uuid: 90f357dd-79ac-47c6-b0b8-958e2d19de07
+  ws-opts:
+    headers:
+      Host: xxccvfrty.999836.xyz
+    path: /10W6SJaK0F0oVXeNU6S2RVRP
+- name: 广东省汕头市+移动
+  network: tcp
+  password: 384d1b42-655f-11ed-a8bf-f23c91cfbbc9
+  port: 27233
+  server: 3b1762f3-sy0cg0-szgtb7-11p9g.cm5.cnkuaishou.com
+  tls: false
+  type: trojan
+- name: 德国+黑森州法兰克福Amazon数据中心
+  network: tcp
+  password: telegram-id-directvpn
+  port: 22223
+  server: 3.126.46.20
+  tls: false
+  type: trojan
+- alterId: 0
+  cipher: auto
+  name: 湖北省武汉市 联通
+  network: tcp
+  port: 45271
+  server: lt.fxlcn.com
+  tls: false
+  type: vmess
+  uuid: 469e0b31-30c3-4dab-800d-711232634ce1
