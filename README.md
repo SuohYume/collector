@@ -1,4 +1,4 @@
-# Proxy Automator - 个人订阅管理平台
+# Proxy Automator
 
 > 最后更新时间: 2025-06-15 06:15:30 (UTC)
 
@@ -26,7 +26,3 @@ https://raw.githubusercontent.com/mio273/collector/main/subscription_lite.yaml
 
 - **原始格式链接 (Raw Links for other clients)**:
 https://raw.githubusercontent.com/mio273/collector/main/proxies.txt
-
-
----
-*由 [Proxy Automator](https://github.com/您的用户名/您的仓库名) 自动生成。*
