@@ -12,20 +12,31 @@ from hashlib import md5
 from datetime import datetime, timezone, timedelta
 
 # =================================================================================
-# --- 配置区 ---
+# --- 配置区 (已修正并补全) ---
 # =================================================================================
 CONFIG = {
-    "db_file": "link_database.csv", "archive_file": "archive.csv",
-    "report_file": "quality_report.csv", "cache_dir": "cached_subs",
-    "output_task_package": "subscription_final.yaml", # 将最终文件名改为更明确的名称
-    "node_quota": 20000, "max_concurrent_requests": 50,
-    "request_timeout": 15, "max_low_rate_runs": 10, "archive_days": 60,
+    # --- 文件路径 ---
+    "db_file": "link_database.csv",
+    "archive_file": "archive.csv",
+    "report_file": "quality_report.csv",
+    "cache_dir": "cached_subs",
+    "output_task_list": "sub_list_for_testing.txt", # 输出给Debian的“任务链接集”
+    "output_full_package": "clash.yaml",           # 合并后的完整节点包
+    "output_lite_package": "clash_lite.yaml",      # 轻量版节点包
+    
+    # --- 行为控制 ---
+    "node_quota": 20000,
+    "lite_node_count": 1000,
+    "max_concurrent_requests": 50,
+    "request_timeout": 15,
+    "max_low_rate_runs": 10,
+    "archive_days": 60,
 }
 
 # =================================================================================
-# --- 核心功能函数 ---
+# --- 核心功能函数 (无需修改) ---
 # =================================================================================
-
+# ... (此处省略所有辅助函数，它们与上一版完全相同) ...
 def get_url_hash(url):
     return md5(url.encode()).hexdigest()
 
@@ -110,22 +121,14 @@ async def main():
 
     now = datetime.now(timezone.utc)
     for url, data in links_db.items():
-        # ###############################################################
-        # ### 这是唯一的、核心的修改点 ###
-        # ###############################################################
         data['consecutive_low_rate_runs'] = int(data.get('consecutive_low_rate_runs') or 0)
-        # ###############################################################
-        
-        repo = os.environ.get('GITHUB_REPOSITORY', 'user/repo')
-        cache_filename = f"{get_url_hash(url)}.yaml"
+        repo = os.environ.get('GITHUB_REPOSITORY', 'user/repo'); cache_filename = f"{get_url_hash(url)}.yaml"
         cached_file_url = f"https://raw.githubusercontent.com/{repo}/main/{CONFIG['cache_dir']}/{cache_filename}"
-        
         if cached_file_url in naughty_list:
             data['consecutive_low_rate_runs'] += 1
             if data['consecutive_low_rate_runs'] >= CONFIG['max_low_rate_runs']: data['status'] = 'dead'
             else: data['status'] = 'unstable'
-        else:
-            data['consecutive_low_rate_runs'] = 0; data['status'] = 'active'
+        else: data['consecutive_low_rate_runs'] = 0; data['status'] = 'active'
         data['last_report_time'] = now.isoformat()
 
     def get_priority(link_data_tuple):
@@ -156,26 +159,41 @@ async def main():
 
     sub_list_for_testing = []
     repo = os.environ.get('GITHUB_REPOSITORY', 'user/repo')
+    all_collected_nodes = []
+
     for url, nodes in source_to_nodes_map.items():
         if not nodes: continue
+        all_collected_nodes.extend(nodes)
         cache_filename = f"{get_url_hash(url)}.yaml"
         cache_filepath = os.path.join(CONFIG['cache_dir'], cache_filename)
         with open(cache_filepath, 'w', encoding='utf-8') as f:
             yaml.dump({'proxies': nodes}, f, allow_unicode=True)
         sub_list_for_testing.append(f"https://raw.githubusercontent.com/{repo}/main/{cache_filepath}")
         
-    with open(CONFIG['output_task_list'], 'w', encoding='utf-8') as f: f.write("\n".join(sub_list_for_testing))
+    # ###############################################################
+    # ### 这里是修正后的文件写入部分 ###
+    # ###############################################################
     
-    # 将最终的任务包重命名为您想要的clash.yaml，方便直接使用
-    final_package_name = "clash.yaml"
-    final_nodes_pool = []
-    for nodes in source_to_nodes_map.values():
-        final_nodes_pool.extend(nodes)
-        
-    with open(final_package_name, 'w', encoding='utf-8') as f:
-        yaml.dump({'proxies': final_nodes_pool}, f, allow_unicode=True, sort_keys=False)
+    # 写入“任务链接集”
+    with open(CONFIG['output_task_list'], 'w', encoding='utf-8') as f:
+        f.write("\n".join(sub_list_for_testing))
+    print(f"\n✅ 任务链接集 {CONFIG['output_task_list']} 已生成，包含 {len(sub_list_for_testing)} 个独立的源镜像。")
 
-    print(f"\n✅ 最终任务包 {final_package_name} 已生成，包含 {len(final_nodes_pool)} 个节点。")
+    # 写入合并后的完整包
+    full_config = {'proxies': all_collected_nodes}
+    with open(CONFIG['output_full_package'], 'w', encoding='utf-8') as f:
+        yaml.dump(full_config, f, allow_unicode=True, sort_keys=False)
+    print(f"✅ 完整节点包 {CONFIG['output_full_package']} 已生成，包含 {len(all_collected_nodes)} 个节点。")
+
+    # 写入轻量版包
+    lite_count = min(len(all_collected_nodes), CONFIG['lite_node_count'])
+    lite_nodes = random.sample(all_collected_nodes, lite_count)
+    lite_config = {'proxies': lite_nodes}
+    with open(CONFIG['output_lite_package'], 'w', encoding='utf-8') as f:
+        yaml.dump(lite_config, f, allow_unicode=True, sort_keys=False)
+    print(f"✅ 轻量版节点包 {CONFIG['output_lite_package']} 已生成，包含 {lite_count} 个节点。")
+    
+    # ###############################################################
 
     header = list(links_db.values())[0].keys() if links_db else []
     if header:
