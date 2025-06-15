@@ -32,6 +32,32 @@ proxies:
     headers:
       Host: cddfrt678.852224.dpdns.org
     path: /l3y4CZ9KUctFw6Ri5y2
+- cipher: chacha20-ietf-poly1305
+  name: end-gfw.com@jp89
+  password: 1a17b19d-4896-4531-af79-6e91d8ef8228
+  port: 9898
+  server: 13.231.231.137
+  type: ss
+- name: end-gfw.com
+  network: tcp
+  password: 1a17b19d-4896-4531-af79-6e91d8ef8228
+  port: 6668
+  server: 13.231.231.137
+  tls: false
+  type: trojan
+- alterId: 0
+  cipher: auto
+  name: end-gfw.com
+  network: ws
+  port: 6868
+  server: 13.231.231.137
+  tls: false
+  type: vmess
+  uuid: 1a17b19d-4896-4531-af79-6e91d8ef8228
+  ws-opts:
+    headers:
+      Host: end-gfw.com
+    path: /
 - name: 3|🇩🇪1 |  1.5MB/s|0%|Openai
   network: ws
   port: 80
