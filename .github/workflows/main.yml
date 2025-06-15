@@ -10,14 +10,30 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.10' }
-      - run: pip install aiohttp PyYAML
-      - run: python proxy_automator.py
-        env: { GITHUB_REPOSITORY: ${{ github.repository }} }
-      - uses: stefanzweifel/git-auto-commit-action@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          commit_message: "📦 [Automated] Update subscription task package"
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: pip install aiohttp PyYAML
+
+      # ##############################################
+      # ### 这里是修正后的部分 ###
+      # ##############################################
+      - name: Run Automator Script
+        run: python proxy_automator.py
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+      # ##############################################
+
+      - name: Commit and Push Changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "📦 [Automated] Update task package and database"
           file_pattern: "link_database.csv sub_list_for_testing.txt cached_subs/*"
