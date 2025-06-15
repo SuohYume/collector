@@ -1,0 +1,44 @@
+name: Check Clash Proxies
+
+on:
+  # 允许您在 Actions 标签页手动触发这个工作流
+  workflow_dispatch:
+  
+  # 设置定时任务，这里的cron表达式表示每6小时运行一次
+  schedule:
+    - cron: '0 */6 * * *'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 第一步：检出你的仓库代码，这样Runner才能访问到你的脚本和URL列表
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 第二步：设置Python环境
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9' # 可以指定你想要的Python版本
+
+      # 第三步：安装Python脚本所需要的依赖库
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests PyYAML
+
+      # 第四步：运行你的Python脚本来检查节点并生成 results.txt
+      - name: Run proxy checker script
+        run: python check_proxies.py
+        
+      # 第五步：将生成的 results.txt 文件自动提交回你的GitHub仓库
+      - name: Commit results
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "📊 自动更新节点检查结果"
+          file_pattern: "results.txt"
+          commit_user_name: "GitHub Actions Bot"
+          commit_user_email: "actions@github.com"
+          commit_author: "GitHub Actions Bot <actions@github.com>"
