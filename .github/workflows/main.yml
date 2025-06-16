@@ -22,19 +22,19 @@ jobs:
       - name: 3. Install Dependencies
         run: pip install aiohttp PyYAML
 
-      - name: 4. Run Step 1: ID Manager
+      - name: 4. Run Step 1 - ID Manager
         run: python id_manager.py
 
-      - name: 5. Run Step 2: Curator
+      - name: 5. Run Step 2 - Curator
         run: python curator.py
 
-      - name: 6. Run Step 3: Fetcher
+      - name: 6. Run Step 3 - Fetcher
         run: python fetcher.py
 
-      - name: 7. Run Step 4: Parser
+      - name: 7. Run Step 4 - Parser
         run: python parser.py
 
-      - name: 8. Run Step 5: Packager
+      - name: 8. Run Step 5 - Packager
         run: python packager.py
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
