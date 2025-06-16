@@ -6,73 +6,70 @@ import asyncio
 import aiohttp
 from datetime import datetime, timedelta, timezone
 
-# =================================================================================
-# --- 配置区 (您可以根据需要调整这里的参数) ---
-# =================================================================================
+# --- 配置区 (与上一版相同) ---
 CONFIG = {
-    # --- 文件路径配置 ---
     "db_file": "link_database.csv",
     "archive_file": "archive.csv",
     "readme_template": "README_TEMPLATE.md",
     "readme_output": "README.md",
-    
-    # --- 输出文件配置 ---
     "output_clash_full": "subscription_full.yaml",
     "output_clash_selected": "subscription_selected_10k.yaml", 
     "output_raw_links": "proxies.txt",
-
-    # --- 行为控制参数 ---
     "max_concurrent_requests": 100,
-    "request_timeout": 15,           # 适当延长超时时间到15秒
-    "max_retries": 2,                # 减少重试次数，因为无效链接太多
+    "request_timeout": 15,
+    "max_retries": 2,
     "unstable_threshold": 5,
     "dead_threshold": 20,
     "archive_days": 30,
     "selected_node_count": 10000,
 }
-# =================================================================================
-# --- 核心功能函数 (最终优化版) ---
-# =================================================================================
-async def fetch_url(session, link_data):
-    """异步获取单个URL的节点信息，并忽略SSL错误。"""
-    base_url = link_data['url'].strip()
-    url = base_url.rstrip('/') + "/clash/proxies"
+
+# --- 核心功能函数 (智能适配版) ---
+async def fetch_url_attempt(session, url):
+    """单个URL的获取尝试，忽略SSL错误。"""
     headers = {'User-Agent': 'Clash'}
+    print(f"    - Trying: {url}")
+    async with session.get(url, headers=headers, timeout=CONFIG['request_timeout'], ssl=False) as response:
+        if response.status != 200:
+            raise Exception(f"Failed with status {response.status}")
+        text = await response.text()
+        content = yaml.safe_load(text)
+        if isinstance(content, dict) and 'proxies' in content and isinstance(content['proxies'], list):
+            return content['proxies']
+        else:
+            raise Exception("Invalid content format")
 
-    print(f"🔎 [ATTEMPTING] {url}")
+async def fetch_url(session, link_data):
+    """
+    智能获取URL，先试原始链接，再试后缀链接。
+    """
+    base_url = link_data['url'].strip()
+    print(f"🔎 [CHECKING] {base_url}")
 
-    for attempt in range(CONFIG['max_retries']):
-        try:
-            if attempt > 0:
-                await asyncio.sleep(1) # 缩短重试等待
-            
-            # --- 核心优化：aiohttp.TCPConnector(ssl=False) 忽略SSL证书验证错误 ---
-            async with session.get(url, headers=headers, timeout=CONFIG['request_timeout'], ssl=False) as response:
-                print(f"  - [STATUS {response.status}] for {url}")
-                if response.status != 200:
-                    # 对于非200的成功响应，也视为失败
-                    raise aiohttp.ClientResponseError(response.request_info, response.history, status=response.status, message=response.reason)
+    # 尝试1: 原始链接
+    try:
+        proxies = await fetch_url_attempt(session, base_url)
+        print(f"✅ [SUCCESS] Found {len(proxies)} nodes from original URL: {base_url}")
+        return {"url": base_url, "status": "success", "proxies": proxies}
+    except Exception as e:
+        print(f"      - Original URL failed: {e}")
 
-                text = await response.text()
-                content = yaml.safe_load(text)
-                
-                if isinstance(content, dict) and 'proxies' in content and isinstance(content['proxies'], list):
-                    print(f"✅ [SUCCESS] Found {len(content['proxies'])} nodes from {url}")
-                    return {"url": base_url, "status": "success", "proxies": content['proxies']}
-                else:
-                    return {"url": base_url, "status": "fail", "reason": "Invalid content format"}
-        except Exception as e:
-            reason = f"Error: {str(e)}"
-            if attempt == CONFIG['max_retries'] - 1:
-                print(f"❌ [FAIL] {url} - {reason}")
-                return {"url": base_url, "status": "fail", "reason": reason}
-            continue
-            
-    return {"url": base_url, "status": "fail", "reason": "Unknown retry failure"}
+    # 尝试2: 带/clash/proxies后缀的链接
+    url_with_suffix = base_url.rstrip('/') + "/clash/proxies"
+    try:
+        proxies = await fetch_url_attempt(session, url_with_suffix)
+        print(f"✅ [SUCCESS] Found {len(proxies)} nodes from URL with suffix: {url_with_suffix}")
+        return {"url": base_url, "status": "success", "proxies": proxies}
+    except Exception as e:
+        reason = f"Both attempts failed. Last error: {e}"
+        print(f"❌ [FAIL] {base_url} - {reason}")
+        return {"url": base_url, "status": "fail", "reason": reason}
 
+# [ ... 后续代码与上一版完全相同 ... ]
+# 为了简洁，此处省略，请确保您只替换了 fetch_url 和 fetch_url_attempt 函数，
+# 或者直接将此文件内容完整覆盖您的旧文件。
 
 def generate_fingerprint(node):
-    """为节点生成唯一指纹以去重"""
     if not isinstance(node, dict): return None
     key_fields = ['server', 'port']
     node_type = node.get('type')
@@ -86,28 +83,22 @@ def generate_fingerprint(node):
         return None
 
 def update_readme(stats):
-    """根据模板和最新数据，更新README.md"""
     try:
         with open(CONFIG['readme_template'], 'r', encoding='utf-8') as f:
             template = f.read()
-        
         repo_url = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/main"
-        
         replacements = {
             "{last_update_time}": stats['last_update_time'],
             "{total_nodes}": str(stats['total_nodes']),
             "{active_links}": str(stats['active_links']),
             "{total_links}": str(stats['total_links']),
-            "{newly_added_nodes}": str(stats['total_nodes']), # 简化为总数
+            "{newly_added_nodes}": str(stats['total_nodes']),
             "{sub_full_url}": f"`{repo_url}/{CONFIG['output_clash_full']}`",
             "{sub_selected_url}": f"`{repo_url}/{CONFIG['output_clash_selected']}`",
             "{raw_links_url}": f"`{repo_url}/{CONFIG['output_raw_links']}`",
         }
-        
         for placeholder, value in replacements.items():
             template = template.replace(placeholder, value)
-            
-        # --- 修复笔误：'readme_output' ---
         with open(CONFIG['readme_output'], 'w', encoding='utf-8') as f:
             f.write(template)
         print("✅ README.md updated successfully.")
@@ -115,7 +106,6 @@ def update_readme(stats):
         print(f"❌ Failed to update README.md: {e}")
 
 async def main():
-    """主执行函数，协调所有操作"""
     try:
         with open(CONFIG['db_file'], 'r', newline='', encoding='utf-8') as f:
             links = list(csv.DictReader(f))
