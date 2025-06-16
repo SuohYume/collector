@@ -18,52 +18,81 @@ CONFIG = {
     
     # --- 输出文件配置 ---
     "output_clash_full": "subscription_full.yaml",
-    "output_clash_selected": "subscription_selected_10k.yaml", # 您要求的精选版文件名
-    "output_raw_links": "proxies.txt", # 为其他客户端准备的原始链接
+    "output_clash_selected": "subscription_selected_10k.yaml", 
+    "output_raw_links": "proxies.txt",
 
     # --- 行为控制参数 ---
-    "max_concurrent_requests": 100,  # 最大并发请求数
-    "request_timeout": 10,           # 单个请求的超时时间（秒）
-    "max_retries": 3,                # 单个链接的最大重试次数
-    "unstable_threshold": 5,         # 连续失败5次，状态变为 'unstable'
-    "dead_threshold": 20,            # 连续失败20次，状态变为 'dead'
-    "archive_days": 30,              # 'dead'状态超过30天，则归档
-    "selected_node_count": 10000,    # 核心要求：精选版订阅包含10000个节点
+    "max_concurrent_requests": 100,
+    "request_timeout": 10,
+    "max_retries": 3,
+    "unstable_threshold": 5,
+    "dead_threshold": 20,
+    "archive_days": 30,
+    "selected_node_count": 10000,
 }
 # =================================================================================
-# --- 核心功能函数 (无需修改) ---
+# --- 核心功能函数 (已添加详细日志) ---
 # =================================================================================
 async def fetch_url(session, link_data):
     """
-    异步获取单个URL的节点信息。
-    这个函数包含了您提醒的两个要点：
-    1. 在URL后自动添加 /clash/proxies
-    2. 包含了重试机制，确保稳定性
+    异步获取单个URL的节点信息，并打印详细的调试日志。
     """
     base_url = link_data['url'].strip()
-    # 核心要求：在链接后加上 /clash/proxies
     url = base_url.rstrip('/') + "/clash/proxies"
     headers = {'User-Agent': 'Clash'}
+
+    # --- DEBUG --- 打印正在尝试的URL
+    print(f"🔎 [ATTEMPTING] {url}")
 
     for attempt in range(CONFIG['max_retries']):
         try:
             if attempt > 0:
-                await asyncio.sleep(2 * attempt) # 递增等待时间
+                # --- DEBUG --- 打印重试信息
+                print(f"⏳ [RETRY {attempt}] Waiting 2s before retrying {url}")
+                await asyncio.sleep(2 * attempt)
             
             async with session.get(url, headers=headers, timeout=CONFIG['request_timeout']) as response:
-                response.raise_for_status()
+                # --- DEBUG --- 打印HTTP状态码
+                print(f"  - [STATUS {response.status}] for {url}")
+                response.raise_for_status() # 如果状态码是4xx或5xx，这里会抛出异常
+                
                 text = await response.text()
                 content = yaml.safe_load(text)
                 
                 if isinstance(content, dict) and 'proxies' in content and isinstance(content['proxies'], list):
+                    # --- DEBUG --- 打印成功信息
+                    print(f"✅ [SUCCESS] Found {len(content['proxies'])} nodes from {url}")
                     return {"url": base_url, "status": "success", "proxies": content['proxies']}
                 else:
-                    return {"url": base_url, "status": "fail", "reason": "Invalid content format"}
-        except Exception as e:
+                    # --- DEBUG --- 打印内容格式错误
+                    reason = "Invalid content format (not a dict with 'proxies' list)"
+                    print(f"❌ [FAIL] {url} - {reason}")
+                    return {"url": base_url, "status": "fail", "reason": reason}
+        except asyncio.TimeoutError:
+             # --- DEBUG --- 打印超时错误
+            reason = f"Request timed out after {CONFIG['request_timeout']}s"
+            print(f"❌ [FAIL] {url} - Attempt {attempt + 1}/{CONFIG['max_retries']} - {reason}")
             if attempt == CONFIG['max_retries'] - 1:
-                return {"url": base_url, "status": "fail", "reason": str(e)}
-            continue
+                return {"url": base_url, "status": "fail", "reason": reason}
+        except aiohttp.ClientResponseError as e:
+            # --- DEBUG --- 打印HTTP错误
+            reason = f"HTTP Error: {e.status} {e.message}"
+            print(f"❌ [FAIL] {url} - Attempt {attempt + 1}/{CONFIG['max_retries']} - {reason}")
+            # 如果是404 Not Found，没必要重试
+            if e.status == 404:
+                return {"url": base_url, "status": "fail", "reason": reason}
+            if attempt == CONFIG['max_retries'] - 1:
+                return {"url": base_url, "status": "fail", "reason": reason}
+        except Exception as e:
+            # --- DEBUG --- 打印其他所有错误
+            reason = f"An unexpected error occurred: {str(e)}"
+            print(f"❌ [FAIL] {url} - Attempt {attempt + 1}/{CONFIG['max_retries']} - {reason}")
+            if attempt == CONFIG['max_retries'] - 1:
+                return {"url": base_url, "status": "fail", "reason": reason}
+    
+    # 理论上不会执行到这里，但作为保险
     return {"url": base_url, "status": "fail", "reason": "Unknown retry failure"}
+
 
 def generate_fingerprint(node):
     """为节点生成唯一指纹以去重 (优化版，更稳定)"""
@@ -198,20 +227,16 @@ async def main():
     print(f"Deduplication complete. Found {len(unique_proxies)} unique nodes.")
 
     # 6. 生成所有输出文件
-    # 生成 Full YAML
     clash_full_config = {'proxies': unique_proxies}
     with open(CONFIG['output_clash_full'], 'w', encoding='utf-8') as f:
         yaml.dump(clash_full_config, f, allow_unicode=True, sort_keys=False)
     
-    # 生成 Selected YAML (10000 节点)
-    # 优雅地处理节点总数不足10000的情况
     selected_count = min(len(unique_proxies), CONFIG['selected_node_count'])
     selected_proxies = random.sample(unique_proxies, selected_count)
     clash_selected_config = {'proxies': selected_proxies}
     with open(CONFIG['output_clash_selected'], 'w', encoding='utf-8') as f:
         yaml.dump(clash_selected_config, f, allow_unicode=True, sort_keys=False)
 
-    # 生成 Raw Links Txt
     with open(CONFIG['output_raw_links'], 'w', encoding='utf-8') as f:
         f.write("# Raw proxy links can be generated here.\n")
 
