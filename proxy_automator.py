@@ -41,56 +41,46 @@ async def fetch_url(session, link_data):
     url = base_url.rstrip('/') + "/clash/proxies"
     headers = {'User-Agent': 'Clash'}
 
-    # --- DEBUG --- 打印正在尝试的URL
     print(f"🔎 [ATTEMPTING] {url}")
 
     for attempt in range(CONFIG['max_retries']):
         try:
             if attempt > 0:
-                # --- DEBUG --- 打印重试信息
                 print(f"⏳ [RETRY {attempt}] Waiting 2s before retrying {url}")
                 await asyncio.sleep(2 * attempt)
             
             async with session.get(url, headers=headers, timeout=CONFIG['request_timeout']) as response:
-                # --- DEBUG --- 打印HTTP状态码
                 print(f"  - [STATUS {response.status}] for {url}")
-                response.raise_for_status() # 如果状态码是4xx或5xx，这里会抛出异常
+                response.raise_for_status() 
                 
                 text = await response.text()
                 content = yaml.safe_load(text)
                 
                 if isinstance(content, dict) and 'proxies' in content and isinstance(content['proxies'], list):
-                    # --- DEBUG --- 打印成功信息
                     print(f"✅ [SUCCESS] Found {len(content['proxies'])} nodes from {url}")
                     return {"url": base_url, "status": "success", "proxies": content['proxies']}
                 else:
-                    # --- DEBUG --- 打印内容格式错误
                     reason = "Invalid content format (not a dict with 'proxies' list)"
                     print(f"❌ [FAIL] {url} - {reason}")
                     return {"url": base_url, "status": "fail", "reason": reason}
         except asyncio.TimeoutError:
-             # --- DEBUG --- 打印超时错误
             reason = f"Request timed out after {CONFIG['request_timeout']}s"
             print(f"❌ [FAIL] {url} - Attempt {attempt + 1}/{CONFIG['max_retries']} - {reason}")
             if attempt == CONFIG['max_retries'] - 1:
                 return {"url": base_url, "status": "fail", "reason": reason}
         except aiohttp.ClientResponseError as e:
-            # --- DEBUG --- 打印HTTP错误
             reason = f"HTTP Error: {e.status} {e.message}"
             print(f"❌ [FAIL] {url} - Attempt {attempt + 1}/{CONFIG['max_retries']} - {reason}")
-            # 如果是404 Not Found，没必要重试
             if e.status == 404:
                 return {"url": base_url, "status": "fail", "reason": reason}
             if attempt == CONFIG['max_retries'] - 1:
                 return {"url": base_url, "status": "fail", "reason": reason}
         except Exception as e:
-            # --- DEBUG --- 打印其他所有错误
             reason = f"An unexpected error occurred: {str(e)}"
             print(f"❌ [FAIL] {url} - Attempt {attempt + 1}/{CONFIG['max_retries']} - {reason}")
             if attempt == CONFIG['max_retries'] - 1:
                 return {"url": base_url, "status": "fail", "reason": reason}
     
-    # 理论上不会执行到这里，但作为保险
     return {"url": base_url, "status": "fail", "reason": "Unknown retry failure"}
 
 
@@ -104,7 +94,6 @@ def generate_fingerprint(node):
         elif node_type in ['vmess', 'vless']: key_fields.append('uuid')
         elif node_type == 'trojan': key_fields.append('password')
         elif node_type == 'ssr': key_fields.extend(['password', 'protocol', 'obfs'])
-        # 使用 .get(k, '') 确保即使键不存在也不会报错
         return f"{node_type}://" + "-".join(sorted([f"{k}:{node.get(k, '')}" for k in key_fields]))
     except (KeyError, TypeError):
         return None
@@ -131,7 +120,7 @@ def update_readme(stats):
         for placeholder, value in replacements.items():
             template = template.replace(placeholder, value)
             
-        with open(CONFIG['readme_output'], 'w', encoding='utf-8') as f:
+        with open(CONFIG['output_readme'], 'w', encoding='utf-8') as f:
             f.write(template)
         print("✅ README.md updated successfully.")
     except Exception as e:
@@ -177,43 +166,56 @@ async def main():
         return
 
     # 2. 智能调度需要检查的链接
-    links_to_check = [link for link in active_db if link.get('status', 'new') in ['active', 'unstable', 'new']]
+    links_to_check = []
+    # =========================================================
+    # --- ！！！这里是修复后的核心逻辑！！！ ---
+    # =========================================================
     for link in active_db:
-        if link.get('status') == 'dead':
+        # 如果状态是空 ('') 或 None，或者在需要检查的列表里，就加入待检查任务
+        status = link.get('status')
+        if not status or status in ['active', 'unstable', 'new']:
+            links_to_check.append(link)
+        elif status == 'dead':
             last_check_str = link.get('last_check_time')
             if last_check_str:
                 last_check = datetime.fromisoformat(last_check_str.replace('Z', '+00:00'))
                 if now - last_check > timedelta(days=1):
-                    links_to_check.append(link)
+                    links_to_check.append(link) # 超过一天的dead链接也重新检查
+            else:
+                 links_to_check.append(link) # 没有检查时间的dead链接也检查
+
+    print(f"Found {len(links_to_check)} links to check.")
 
     # 3. 并发执行检查
     all_proxies = []
-    async with aiohttp.ClientSession() as session:
-        tasks = [fetch_url(session, link) for link in links_to_check]
-        results = await asyncio.gather(*tasks)
-
-    # 4. 更新健康档案
-    results_map = {res['url']: res for res in results}
-    for link in active_db:
-        link['last_check_time'] = now.isoformat()
-        if link['url'] in results_map:
-            result = results_map[link['url']]
-            if result['status'] == 'success':
-                link.update({
-                    'success_streak': link['success_streak'] + 1,
-                    'failure_streak': 0,
-                    'status': 'active',
-                    'last_success_time': now.isoformat(),
-                    'node_count': len(result['proxies'])
-                })
-                all_proxies.extend(result['proxies'])
-            else:
-                link['failure_streak'] += 1
-                link['success_streak'] = 0
-                if link['failure_streak'] >= CONFIG['dead_threshold']:
-                    link['status'] = 'dead'
-                elif link['failure_streak'] >= CONFIG['unstable_threshold']:
-                    link['status'] = 'unstable'
+    if links_to_check:
+        async with aiohttp.ClientSession() as session:
+            tasks = [fetch_url(session, link) for link in links_to_check]
+            results = await asyncio.gather(*tasks)
+        
+        # 4. 更新健康档案
+        results_map = {res['url']: res for res in results}
+        for link in active_db:
+            # 只更新被检查过的链接
+            if link['url'] in results_map:
+                link['last_check_time'] = now.isoformat()
+                result = results_map[link['url']]
+                if result['status'] == 'success':
+                    link.update({
+                        'success_streak': link['success_streak'] + 1,
+                        'failure_streak': 0,
+                        'status': 'active',
+                        'last_success_time': now.isoformat(),
+                        'node_count': len(result['proxies'])
+                    })
+                    all_proxies.extend(result['proxies'])
+                else:
+                    link['failure_streak'] += 1
+                    link['success_streak'] = 0
+                    if link['failure_streak'] >= CONFIG['dead_threshold']:
+                        link['status'] = 'dead'
+                    elif link['failure_streak'] >= CONFIG['unstable_threshold']:
+                        link['status'] = 'unstable'
     
     # 5. 去重
     unique_proxies = []
