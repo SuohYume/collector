@@ -1,34 +1,29 @@
-name: Subscription Curation Workflow
+name: Ultimate Subscription Automator
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2,10,18 * * *'
+    - cron: '0 1,9,17 * * *' # 在您本地任务运行前约1小时执行
 
 jobs:
-  curate-links:
+  build-package:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
+        with: { python-version: '3.10' }
       - name: Install Dependencies
         run: pip install aiohttp PyYAML
-
-      - name: Run Curator and Cacher
+      - name: Run The Ultimate Automator Script
         run: python proxy_automator.py
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
-
-      - name: Commit All Changes
+      - name: Commit All Artifacts
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🚀 [Automated] Update subscription task list"
-          file_pattern: "link_database.csv sub_list_for_testing.txt cached_subs/*"
+          commit_message: "📦 [Automated] Update clash task package"
+          file_pattern: "link_database.csv clash.yaml"
