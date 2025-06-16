@@ -3,6 +3,7 @@ import csv
 import asyncio
 import aiohttp
 import ssl
+import re
 from hashlib import md5
 from datetime import datetime, timezone
 from config import CONFIG # 导入配置
@@ -35,7 +36,7 @@ async def fetch_content(session: aiohttp.ClientSession, url: str) -> str | None:
     # 【关键】从配置中读取代理地址
     proxy = CONFIG.get("FETCHER_PROXY") or None
     try:
-        # 简化逻辑：所有链接都直接访问，不再尝试拼接后缀，因为您已手动处理
+        # 简化逻辑：所有链接都直接访问，不再尝试拼接后缀
         async with session.get(url, headers=headers, timeout=CONFIG['REQUEST_TIMEOUT'], ssl=SSL_CONTEXT, proxy=proxy) as response:
             response.raise_for_status()
             print(f"✅ 成功获取: {url}")
@@ -67,7 +68,12 @@ async def main():
 
     db_header = list(links_db[0].keys()) if links_db else ['url']
     if 'id' not in db_header: db_header.insert(0, 'id')
-    db_changed = any(ensure_id(row) for row in links_db)
+
+    db_changed = False
+    for row in links_db:
+        if ensure_id(row):
+            db_changed = True
+
     if db_changed:
         with open(CONFIG['DB_FILE'], 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=db_header, extrasaction='ignore'); writer.writeheader(); writer.writerows(links_db)
@@ -109,7 +115,7 @@ async def main():
         if result:
             current_count = int(result.get('estimated_raw_node_count', 0))
             if total_estimated_nodes < CONFIG['RAW_NODE_ESTIMATE_TARGET']:
-                if current_count > 0 : # 只把有估算节点的链接加入最终列表
+                if current_count > 0:
                     total_estimated_nodes += current_count
                     links_for_debian.append(result)
             for ld in links_db:
