@@ -1,33 +1,44 @@
-name: Ultimate Subscription Curator
+# .github/workflows/main.yml
+name: Modular Subscription Pipeline
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2,10,18 * * *' # 您指定的每日三次运行时间 (UTC)
+    - cron: '0 2,10,18 * * *'
 
 jobs:
-  curate-and-package:
+  process-subscriptions:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with: { python-version: '3.10' }
-
       - name: Install Dependencies
         run: pip install aiohttp PyYAML
 
-      - name: Run The Ultimate Automator Script
-        run: python proxy_automator.py
+      - name: Step 1: Run ID Manager
+        run: python id_manager.py
+
+      - name: Step 2: Run Curator
+        run: python curator.py
+
+      - name: Step 3: Run Fetcher
+        run: python fetcher.py
+
+      - name: Step 4: Run Parser
+        run: python parser.py
+
+      - name: Step 5: Run Packager
+        run: python packager.py
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Commit All Artifacts
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🚀 [Automated] Update subscription task list"
-          file_pattern: "link_database.csv archive.csv sub_list_for_testing.txt cached_subs/*"
+          commit_message: "🚀 [Automated] Update subscription data pipeline"
+          file_pattern: "*.csv *.json *.yaml *.txt cached_subs/*"
