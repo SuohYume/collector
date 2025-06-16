@@ -53,7 +53,6 @@ async def fetch_content(session: aiohttp.ClientSession, url: str) -> str | None:
                 response.raise_for_status()
                 return await response.text()
         except Exception as e:
-            # 在调试时可以取消注释下一行来查看详细错误
             # print(f"DEBUG: Fetch failed for {target_url}, Reason: {e}")
             return None
 
@@ -72,19 +71,16 @@ async def fetch_content(session: aiohttp.ClientSession, url: str) -> str | None:
     return None
 
 def is_content_valid(text: str) -> bool:
-    """一个更可靠的探针，只判断格式是否有效"""
     if not text: return False
-    # 只要包含任何一个可能的关键字或格式，就认为内容“值得”深入解析
     if "proxies:" in text or re.search(r"(vmess|vless|ss|trojan)://", text, re.IGNORECASE):
         return True
-    try: # 尝试判断是否为有效的Base64
+    try:
         base64.b64decode(''.join(text.split()))
         return True
     except Exception: return False
 
 async def process_link(session: aiohttp.ClientSession, link_data: dict) -> dict | None:
-    """处理单个链接：获取内容、估算数量、写入缓存"""
-    content = await fetch_content(session, link_data['url'], link_data.get('type', 'auto'))
+    content = await fetch_content(session, link_data['url'])
     if content:
         node_count = get_node_count_from_content(content)
         if node_count > 0:
@@ -95,22 +91,26 @@ async def process_link(session: aiohttp.ClientSession, link_data: dict) -> dict 
             return link_data
     return None
 
+# =================================================================================
+# --- 主执行逻辑 ---
+# =================================================================================
+
 async def main():
-    # =================================================================================
-    # --- 步骤 1: 强制户籍注册 (Defensive Data Sanitization) ---
-    # =================================================================================
+    # --- 步骤 1: 读取数据库并强制进行ID注册 ---
     try:
         with open(CONFIG['DB_FILE'], 'r', newline='', encoding='utf-8') as f:
             links_db = list(csv.DictReader(f))
     except FileNotFoundError:
-        print(f"主数据库 {CONFIG['DB_FILE']} 未找到，工作流停止。")
+        print(f"主数据库 {CONFIG['DB_FILE']} 未找到，请创建它并至少包含'url'列。")
         return
 
-    db_header = links_db[0].keys() if links_db else ['id', 'url', 'type', 'status', 'last_report_time', 'failure_streak', 'estimated_raw_node_count']
-    if 'id' not in db_header: db_header.append('id')
+    # 【重大修正】将'dict_keys'对象强制转换为'list'，以允许修改
+    db_header = list(links_db[0].keys()) if links_db else ['url']
+    if 'id' not in db_header:
+        db_header.append('id')
 
     db_changed = any(ensure_id(row) for row in links_db)
-
+    
     if db_changed:
         print("检测到新链接，正在自动分配ID并回写数据库...")
         with open(CONFIG['DB_FILE'], 'w', newline='', encoding='utf-8') as f:
@@ -119,9 +119,7 @@ async def main():
             writer.writerows(links_db)
         print("ID分配完成。")
 
-    # =================================================================================
     # --- 步骤 2: 读取报告并更新健康度 ---
-    # =================================================================================
     try:
         with open(CONFIG['REPORT_FILE'], 'r', newline='', encoding='utf-8') as f:
             naughty_list = {row['failed_id'] for row in csv.DictReader(f)}
@@ -142,20 +140,19 @@ async def main():
             row['status'] = 'active'
         row['last_report_time'] = now_iso
 
-    # =================================================================================
-    # --- 步骤 3: 筛选任务并执行 ---
-    # =================================================================================
+    # --- 步骤 3: 排序并并发获取内容 ---
     def get_priority(row):
         status_map = {'active': 0, 'new': 1, 'unstable': 2, 'dead': 3}
         return (status_map.get(row.get('status', 'new'), 9), row['failure_streak'])
     links_db.sort(key=get_priority)
 
-    tasks_to_run = [ld for ld in links_db if ld.get('status') != 'dead']
-    print(f"--- 准备处理 {len(tasks_to_run)} 个健康链接 ---")
-    if not tasks_to_run: return
-
     if not os.path.exists(CONFIG['CACHE_DIR']): os.makedirs(CONFIG['CACHE_DIR'])
     for f in os.listdir(CONFIG['CACHE_DIR']): os.remove(os.path.join(CONFIG['CACHE_DIR'], f))
+
+    tasks_to_run = [ld for ld in links_db if ld.get('status') != 'dead']
+    print(f"--- 准备处理 {len(tasks_to_run)} 个健康链接 ---")
+    
+    if not tasks_to_run: return
 
     total_estimated_nodes = 0
     links_for_debian = []
@@ -165,28 +162,29 @@ async def main():
 
     for result in results:
         if result:
+            current_count = int(result.get('estimated_raw_node_count', 0))
             if total_estimated_nodes < CONFIG['RAW_NODE_ESTIMATE_TARGET']:
-                total_estimated_nodes += int(result.get('estimated_raw_node_count', 0))
+                total_estimated_nodes += current_count
                 links_for_debian.append(result)
             
             for ld in links_db:
                 if ld['id'] == result['id']:
-                    ld['estimated_raw_node_count'] = result['estimated_raw_node_count']
+                    ld['estimated_raw_node_count'] = current_count
                     break
 
     print(f"凑量完成，共选中 {len(links_for_debian)} 个链接，估算节点总数: {total_estimated_nodes}")
-
-    # =================================================================================
+    
     # --- 步骤 4: 生成产物并回写数据库 ---
-    # =================================================================================
     repo = os.environ.get('GITHUB_REPOSITORY', 'user/repo')
     task_urls = [f"https://raw.githubusercontent.com/{repo}/main/{CONFIG['CACHE_DIR']}/{link['id']}.txt" for link in links_for_debian]
     with open(CONFIG['OUTPUT_TASK_LIST'], 'w', encoding='utf-8') as f:
         f.write("\n".join(task_urls))
     print(f"✅ 任务链接集 {CONFIG['OUTPUT_TASK_LIST']} 已生成。")
 
+    # 确保回写时使用最新的、可能已添加了新列的表头
+    final_header = links_db[0].keys() if links_db else []
     with open(CONFIG['DB_FILE'], 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=db_header, extrasaction='ignore')
+        writer = csv.DictWriter(f, fieldnames=final_header, extrasaction='ignore')
         writer.writeheader()
         writer.writerows(links_db)
 
