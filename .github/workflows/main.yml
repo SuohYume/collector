@@ -1,18 +1,18 @@
-name: Pure Content Cacher
+name: Ultimate Proxy Automator
 
 on:
+  # 允许您在 Actions 标签页手动触发这个工作流
   workflow_dispatch:
+  
+  # 设定最优执行频率：每3小时一次。'0 */3 * * *' 表示在 0, 3, 6, 9, 12, 15, 18, 21点执行
   schedule:
-    # 每3小时运行一次
     - cron: '0 */3 * * *'
 
 jobs:
-  cache-subscriptions:
+  automate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -20,16 +20,23 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
-        run: pip install aiohttp
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install aiohttp PyYAML
 
-      - name: Run The Cacher Script
-        run: python cacher.py
+      - name: Run Automator Script
+        run: python proxy_automator.py
         env:
+          # 将仓库名称注入环境变量，供脚本使用
           GITHUB_REPOSITORY: ${{ github.repository }}
 
-      - name: Commit Cached Files
+      - name: Commit and Push Changes
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "📦 [Automated] Update subscription content cache"
-          file_pattern: "cache_manifest.txt cached_subs/*.txt"
+          commit_message: "🚀 Auto-update proxy data"
+          # 匹配所有需要提交的文件
+          file_pattern: "*.yaml *.txt *.csv *.md"
+          commit_user_name: "GitHub Actions Bot"
+          commit_user_email: "actions@github.com"
+          commit_author: "GitHub Actions Bot <actions@github.com>"
