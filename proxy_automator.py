@@ -103,13 +103,17 @@ async def main():
     except FileNotFoundError:
         print(f"主数据库 {CONFIG['DB_FILE']} 未找到，请创建它并至少包含'url'列。")
         return
-
-    # 【重大修正】将'dict_keys'对象强制转换为'list'，以允许修改
-    db_header = list(links_db[0].keys()) if links_db else ['url']
+    
+    # 【重大修正】使用完整的for循环，确保为所有新链接生成ID
+    db_changed = False
+    for row in links_db:
+        if ensure_id(row):
+            db_changed = True
+    
+    # 获取完整的表头，以备后用
+    db_header = links_db[0].keys() if links_db else ['url']
     if 'id' not in db_header:
-        db_header.append('id')
-
-    db_changed = any(ensure_id(row) for row in links_db)
+        db_header = list(db_header) + ['id']
     
     if db_changed:
         print("检测到新链接，正在自动分配ID并回写数据库...")
@@ -134,10 +138,7 @@ async def main():
         else:
             row['failure_streak'] = 0
         
-        if row['failure_streak'] >= CONFIG['MAX_FAILURE_STREAK']:
-            row['status'] = 'dead'
-        else:
-            row['status'] = 'active'
+        row['status'] = 'dead' if row['failure_streak'] >= CONFIG['MAX_FAILURE_STREAK'] else 'active'
         row['last_report_time'] = now_iso
 
     # --- 步骤 3: 排序并并发获取内容 ---
@@ -180,9 +181,11 @@ async def main():
     with open(CONFIG['OUTPUT_TASK_LIST'], 'w', encoding='utf-8') as f:
         f.write("\n".join(task_urls))
     print(f"✅ 任务链接集 {CONFIG['OUTPUT_TASK_LIST']} 已生成。")
-
-    # 确保回写时使用最新的、可能已添加了新列的表头
-    final_header = links_db[0].keys() if links_db else []
+    
+    final_header = list(db_header)
+    if 'estimated_raw_node_count' not in final_header:
+        final_header.append('estimated_raw_node_count')
+    
     with open(CONFIG['DB_FILE'], 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=final_header, extrasaction='ignore')
         writer.writeheader()
