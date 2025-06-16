@@ -5,19 +5,7 @@ import aiohttp
 import ssl
 from hashlib import md5
 from datetime import datetime, timezone
-
-# --- 配置区 ---
-CONFIG = {
-    "DB_FILE": "link_database.csv",
-    "REPORT_FILE": "quality_report.csv",
-    "CACHE_DIR": "cached_subs",
-    "OUTPUT_TASK_LIST": "sub_list_for_testing.txt",
-    "RAW_NODE_ESTIMATE_TARGET": 50000,
-    "REQUEST_TIMEOUT": 10,
-    "MAX_FAILURE_STREAK": 10,
-    "MAX_CONCURRENT_REQUESTS": 100,
-    "FETCHER_PROXY": "",
-}
+from config import CONFIG # 导入配置
 
 # --- 全局SSL上下文 ---
 SSL_CONTEXT = ssl.create_default_context()
@@ -34,14 +22,20 @@ def ensure_id(row: dict) -> bool:
 
 def get_node_count_from_content(text: str) -> int:
     if not text: return 0
-    # 这是一个非常简化的估算
-    return text.count("server:") + text.count("add:") + text.count("://")
+    import re
+    if "proxies:" in text or re.search(r"(vmess|vless|ss|trojan)://", text, re.IGNORECASE): return 1
+    try:
+        import base64
+        if base64.b64decode(''.join(text.split())): return 1
+    except Exception: return 0
+    return 0
 
 async def fetch_content(session: aiohttp.ClientSession, url: str) -> str | None:
     headers = {'User-Agent': 'Clash'}
+    # 【关键】从配置中读取代理地址
     proxy = CONFIG.get("FETCHER_PROXY") or None
     try:
-        # 简化探测逻辑，直接尝试原始链接
+        # 简化逻辑：所有链接都直接访问，不再尝试拼接后缀，因为您已手动处理
         async with session.get(url, headers=headers, timeout=CONFIG['REQUEST_TIMEOUT'], ssl=SSL_CONTEXT, proxy=proxy) as response:
             response.raise_for_status()
             print(f"✅ 成功获取: {url}")
@@ -54,7 +48,6 @@ async def process_link(session: aiohttp.ClientSession, link_data: dict) -> dict 
     content = await fetch_content(session, link_data['url'])
     if content:
         node_count = get_node_count_from_content(content)
-        # 即使没有估算出节点，只要获取成功就缓存，让本地工具做最终判断
         link_data['estimated_raw_node_count'] = node_count
         cache_path = os.path.join(CONFIG['CACHE_DIR'], f"{link_data['id']}.txt")
         with open(cache_path, 'w', encoding='utf-8') as f:
@@ -62,58 +55,38 @@ async def process_link(session: aiohttp.ClientSession, link_data: dict) -> dict 
         return link_data
     return None
 
-# =================================================================================
 # --- 主执行逻辑 ---
-# =================================================================================
-
 async def main():
-    # --- 步骤 1: 读取数据库并强制进行ID注册 ---
+    # 1. 初始化和数据库ID管理
     try:
         with open(CONFIG['DB_FILE'], 'r', newline='', encoding='utf-8') as f:
             links_db = list(csv.DictReader(f))
     except FileNotFoundError:
-        print(f"主数据库 {CONFIG['DB_FILE']} 未找到，请创建它并至少包含'url'列。")
+        print(f"主数据库 {CONFIG['DB_FILE']} 未找到。")
         return
 
-    # 【核心修正】使用完整的for循环，确保为所有新链接生成ID，修复any()的短路BUG
-    db_changed = False
-    for row in links_db:
-        if ensure_id(row):
-            db_changed = True
-    
-    # 获取完整的表头，以备后用
     db_header = list(links_db[0].keys()) if links_db else ['url']
-    if 'id' not in db_header:
-        db_header.insert(0, 'id') # 确保id是第一列
-    
+    if 'id' not in db_header: db_header.insert(0, 'id')
+    db_changed = any(ensure_id(row) for row in links_db)
     if db_changed:
-        print("检测到新链接，正在自动分配ID并回写数据库...")
         with open(CONFIG['DB_FILE'], 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=db_header, extrasaction='ignore')
-            writer.writeheader()
-            writer.writerows(links_db)
-        print("ID分配完成。")
+            writer = csv.DictWriter(f, fieldnames=db_header, extrasaction='ignore'); writer.writeheader(); writer.writerows(links_db)
 
-    # --- 步骤 2: 读取报告并更新健康度 ---
+    # 2. 读取报告并更新健康度
     try:
         with open(CONFIG['REPORT_FILE'], 'r', newline='', encoding='utf-8') as f:
             naughty_list = {row['failed_id'] for row in csv.DictReader(f)}
-    except FileNotFoundError:
-        naughty_list = set()
+    except FileNotFoundError: naughty_list = set()
 
     now_iso = datetime.now(timezone.utc).isoformat()
     for row in links_db:
         row['failure_streak'] = int(row.get('failure_streak') or 0)
-        # 确保在使用'id'键之前，它已经被ensure_id函数创建
-        if row.get('id') in naughty_list:
-            row['failure_streak'] += 1
-        else:
-            row['failure_streak'] = 0
-        
+        if row.get('id') in naughty_list: row['failure_streak'] += 1
+        else: row['failure_streak'] = 0
         row['status'] = 'dead' if row['failure_streak'] >= CONFIG['MAX_FAILURE_STREAK'] else 'active'
         row['last_report_time'] = now_iso
 
-    # --- 步骤 3: 排序并并发获取内容 ---
+    # 3. 排序并并发获取内容
     def get_priority(row):
         return (0 if row.get('status') == 'active' else 1, row['failure_streak'])
     links_db.sort(key=get_priority)
@@ -123,47 +96,39 @@ async def main():
 
     tasks_to_run = [ld for ld in links_db if ld.get('status') != 'dead']
     print(f"--- 准备处理 {len(tasks_to_run)} 个健康链接 ---")
-    
     if not tasks_to_run: return
 
     total_estimated_nodes = 0
     links_for_debian = []
-    
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=CONFIG['MAX_CONCURRENT_REQUESTS'])) as session:
+
+    connector = aiohttp.TCPConnector(limit=CONFIG['MAX_CONCURRENT_REQUESTS'])
+    async with aiohttp.ClientSession(connector=connector) as session:
         results = await asyncio.gather(*(process_link(session, ld) for ld in tasks_to_run))
 
     for result in results:
         if result:
             current_count = int(result.get('estimated_raw_node_count', 0))
             if total_estimated_nodes < CONFIG['RAW_NODE_ESTIMATE_TARGET']:
-                total_estimated_nodes += current_count
-                links_for_debian.append(result)
-            
+                if current_count > 0 : # 只把有估算节点的链接加入最终列表
+                    total_estimated_nodes += current_count
+                    links_for_debian.append(result)
             for ld in links_db:
                 if ld['id'] == result['id']:
                     ld['estimated_raw_node_count'] = current_count
                     break
 
     print(f"凑量完成，共选中 {len(links_for_debian)} 个链接，估算节点总数: {total_estimated_nodes}")
-    
-    # --- 步骤 4: 生成产物并回写数据库 ---
+
+    # 4. 生成产物并回写数据库
     repo = os.environ.get('GITHUB_REPOSITORY', 'user/repo')
     task_urls = [f"https://raw.githubusercontent.com/{repo}/main/{CONFIG['CACHE_DIR']}/{link['id']}.txt" for link in links_for_debian]
     with open(CONFIG['OUTPUT_TASK_LIST'], 'w', encoding='utf-8') as f:
         f.write("\n".join(task_urls))
     print(f"✅ 任务链接集 {CONFIG['OUTPUT_TASK_LIST']} 已生成。")
 
-    # 确保回写时使用最新的、可能已添加了新列的表头
-    final_header = list(db_header)
-    if 'status' not in final_header: final_header.append('status')
-    if 'last_report_time' not in final_header: final_header.append('last_report_time')
-    if 'failure_streak' not in final_header: final_header.append('failure_streak')
-    if 'estimated_raw_node_count' not in final_header: final_header.append('estimated_raw_node_count')
-
+    final_header = ['id', 'url', 'type', 'status', 'last_report_time', 'failure_streak', 'estimated_raw_node_count']
     with open(CONFIG['DB_FILE'], 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=final_header, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(links_db)
+        writer = csv.DictWriter(f, fieldnames=final_header, extrasaction='ignore'); writer.writeheader(); writer.writerows(links_db)
 
 if __name__ == "__main__":
     asyncio.run(main())
