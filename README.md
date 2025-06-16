@@ -1,13 +1,13 @@
 # Proxy Automator - 个人订阅管理平台
-> 最后更新时间: 2025-06-16 09:26:42 (UTC)
+> 最后更新时间: 2025-06-16 09:31:42 (UTC)
 
 这是一个由 GitHub Actions 驱动的全自动、自优化的 Clash/V2Ray 订阅聚合与分发平台。
 
 ---
 ### 📊 **最新运行状态**
-- **节点总数 (去重后)**: **1636**
+- **节点总数 (去重后)**: **0**
 - **活跃链接数**: **37** / **236**
-- **本次检查新增节点**: **1636**
+- **本次检查新增节点**: **0**
 
 ---
 
@@ -16,10 +16,10 @@
 > 点击链接即可复制。推荐使用 `subscription_full.yaml`，它包含了所有可用节点。
 
 - **完整版订阅 (Full - 全部节点)**:
-`https://raw.githubusercontent.com/mio273/collector/main/subscription_full.yaml`
+``https://raw.githubusercontent.com/mio273/collector/main/subscription_full.yaml``
 
 - **精选版订阅 (Selected - 10000个节点)**:
-`{sub_selected_url}`
+``https://raw.githubusercontent.com/mio273/collector/main/subscription_selected_10k.yaml``
 
 - **原始格式链接 (Raw Links for other clients)**:
-`https://raw.githubusercontent.com/mio273/collector/main/proxies.txt`
+``https://raw.githubusercontent.com/mio273/collector/main/proxies.txt``
