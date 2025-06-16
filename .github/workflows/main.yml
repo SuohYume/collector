@@ -3,16 +3,17 @@ name: Ultimate Proxy Automator
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */3 * * *' # 每3小时运行一次
+    - cron: '0 */3 * * *'
 
 jobs:
   automate:
     runs-on: ubuntu-latest
-
-    # VVVV 在这里添加这两行 VVVV
+    
+    # =========================================================
+    # --- 在这里添加下面的 permissions 配置块 ---
     permissions:
       contents: write
-    # ^^^^ 在这里添加这两行 ^^^^
+    # =========================================================
 
     steps:
       - name: Checkout repository
