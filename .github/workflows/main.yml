@@ -1,9 +1,9 @@
-name: Universal Subscription Cacher
+name: Pure Content Cacher
 
 on:
   workflow_dispatch:
   schedule:
-    # 每3小时运行一次，为您提供新鲜的缓存
+    # 每3小时运行一次
     - cron: '0 */3 * * *'
 
 jobs:
@@ -23,14 +23,13 @@ jobs:
       - name: Install Dependencies
         run: pip install aiohttp
 
-      - name: Run Cacher Script
-        run: python proxy_automator.py
+      - name: Run The Cacher Script
+        run: python cacher.py
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
-      - name: Commit Cached Files and Manifest
+      - name: Commit Cached Files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "📦 [Automated] Update subscription cache"
-          # 只提交有变动的文件
-          file_pattern: "link_database.csv cache_manifest.txt cached_subs/*.txt"
+          commit_message: "📦 [Automated] Update subscription content cache"
+          file_pattern: "cache_manifest.txt cached_subs/*.txt"
