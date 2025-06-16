@@ -1,12 +1,13 @@
-name: Ultimate Subscription Curation Workflow
+name: Universal Subscription Cacher
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2,10,18 * * *'
+    # 每3小时运行一次，为您提供新鲜的缓存
+    - cron: '0 */3 * * *'
 
 jobs:
-  curate:
+  cache-subscriptions:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -20,16 +21,16 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install aiohttp PyYAML
+        run: pip install aiohttp
 
-      - name: Run The Ultimate Automator Script
+      - name: Run Cacher Script
         run: python proxy_automator.py
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
-      - name: Commit All Changes
+      - name: Commit Cached Files and Manifest
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "🚀 [Automated] Update subscription task list"
-          # 只提交数据库和最终的任务清单
-          file_pattern: "link_database.csv sub_list_for_testing.txt"
+          commit_message: "📦 [Automated] Update subscription cache"
+          # 只提交有变动的文件
+          file_pattern: "link_database.csv cache_manifest.txt cached_subs/*.txt"
