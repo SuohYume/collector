@@ -3,7 +3,7 @@ name: Ultimate Subscription Automator
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 1,9,17 * * *' # 在您本地任务运行前约1小时执行
+    - cron: '0 2,10,18 * * *'
 
 jobs:
   build-package:
@@ -26,4 +26,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "📦 [Automated] Update clash task package"
-          file_pattern: "link_database.csv clash.yaml"
+          file_pattern: "link_database.csv *.yaml *.txt"
